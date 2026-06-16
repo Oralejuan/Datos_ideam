@@ -14,7 +14,7 @@ from streamlit_folium import folium_static
 # ===================================================================
 st.set_page_config(page_title="Visor Climático IDEAM", page_icon="🌦️", layout="wide")
 
-# Inicializar session_state (solo si no existen)
+# Inicializar session_state
 if 'estaciones' not in st.session_state:
     st.session_state.estaciones = None
 if 'codigo_seleccionado' not in st.session_state:
@@ -23,7 +23,6 @@ if 'nombre_seleccionado' not in st.session_state:
     st.session_state.nombre_seleccionado = None
 if 'datos_descargados' not in st.session_state:
     st.session_state.datos_descargados = {}
-# Fechas por defecto
 if 'fecha_ini' not in st.session_state:
     st.session_state.fecha_ini = datetime(1970, 1, 1)
 if 'fecha_fin' not in st.session_state:
@@ -146,10 +145,9 @@ if st.session_state.estaciones is not None:
         default=st.session_state.variables,
         key="variables"
     )
-    # Guardar la selección actual
     st.session_state.variables = variables
     
-    # Rango de fechas (usando key para vinculación directa)
+    # Rango de fechas
     col1, col2 = st.columns(2)
     with col1:
         st.date_input(
@@ -169,11 +167,9 @@ if st.session_state.estaciones is not None:
         )
     
     if st.button("📥 Descargar y graficar", type="primary"):
-        # Recuperar fechas del estado
         fecha_ini = st.session_state.fecha_ini
         fecha_fin = st.session_state.fecha_fin
         variables = st.session_state.variables
-        
         datasets = {"Precipitación": "s54a-sgyg", "Temperatura": "sbwg-7ju4"}
         datos = {}
         with st.spinner("Descargando datos..."):
@@ -232,19 +228,17 @@ if st.session_state.estaciones is not None:
                 st.download_button(
                     label=f"📄 Descargar {var} (CSV)",
                     data=csv,
-                    file_name=f"{st.session_state.nombre_seleccionado}_{var}_{fecha_ini}_{fecha_fin}.csv",
+                    file_name=f"{st.session_state.nombre_seleccionado}_{var}_{st.session_state.fecha_ini.strftime('%Y%m%d')}_{st.session_state.fecha_fin.strftime('%Y%m%d')}.csv",
                     mime='text/csv'
                 )
+
 else:
+    # Si no hay estaciones en el estado, mostrar mensaje de bienvenida
     st.info("🔍 Ingresa coordenadas y presiona 'Buscar estaciones'.")
     st.map(pd.DataFrame({'lat': [4.7110], 'lon': [-74.0721]}))
 
-st.markdown("---")
-st.caption("Datos: IDEAM a través de datos.gov.co | App con Streamlit")
-
-else:
-    st.info("🔍 Ingresa coordenadas y presiona 'Buscar estaciones'.")
-    st.map(pd.DataFrame({'lat': [4.7110], 'lon': [-74.0721]}))
-
+# ===================================================================
+# PIE DE PÁGINA
+# ===================================================================
 st.markdown("---")
 st.caption("Datos: IDEAM a través de datos.gov.co | App con Streamlit")
