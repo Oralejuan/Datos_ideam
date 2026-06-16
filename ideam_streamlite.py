@@ -14,7 +14,7 @@ from streamlit_folium import folium_static
 # ===================================================================
 st.set_page_config(page_title="Visor Climático IDEAM", page_icon="🌦️", layout="wide")
 
-# Inicializar session_state
+# Inicializar session_state (solo si no existen)
 if 'estaciones' not in st.session_state:
     st.session_state.estaciones = None
 if 'codigo_seleccionado' not in st.session_state:
@@ -23,10 +23,6 @@ if 'nombre_seleccionado' not in st.session_state:
     st.session_state.nombre_seleccionado = None
 if 'datos_descargados' not in st.session_state:
     st.session_state.datos_descargados = {}
-if 'fecha_ini' not in st.session_state:
-    st.session_state.fecha_ini = datetime(1970, 1, 1)
-if 'fecha_fin' not in st.session_state:
-    st.session_state.fecha_fin = datetime.now()
 if 'variables' not in st.session_state:
     st.session_state.variables = ["Precipitación"]
 
@@ -126,88 +122,50 @@ if st.session_state.estaciones is not None:
         ).add_to(m)
     folium_static(m, width=700, height=400)
     
-    # ... (código anterior)
-
-# Selección de estación
-opciones = {f"{row['name']} ({row['id']})": row['id'] for _, row in estaciones.iterrows()}
-seleccion = st.selectbox(
-    "Selecciona una estación",
-    list(opciones.keys()),
-    key="estacion_select"
-)
-codigo = opciones[seleccion]
-nombre = seleccion.split(" (")[0]
-st.session_state.codigo_seleccionado = codigo
-st.session_state.nombre_seleccionado = nombre
-
-# Variables (vinculadas a session_state)
-variables = st.multiselect(
-    "Variables a descargar",
-    options=["Precipitación", "Temperatura"],
-    default=st.session_state.get("variables", ["Precipitación"]),
-    key="variables"
-)
-# NO asignes st.session_state.variables = variables
-
-# Fechas
-col1, col2 = st.columns(2)
-with col1:
-    st.date_input(
-        "Fecha inicial",
-        value=st.session_state.get("fecha_ini", datetime(1970, 1, 1)),
-        min_value=datetime(1950, 1, 1),
-        max_value=datetime.now(),
-        key="fecha_ini"
+    # Selección de estación (sin key para evitar duplicados, usamos variable local)
+    opciones = {f"{row['name']} ({row['id']})": row['id'] for _, row in estaciones.iterrows()}
+    seleccion = st.selectbox(
+        "Selecciona una estación",
+        list(opciones.keys())
     )
-with col2:
-    st.date_input(
-        "Fecha final",
-        value=st.session_state.get("fecha_fin", datetime.now()),
-        min_value=datetime(1950, 1, 1),
-        max_value=datetime.now(),
-        key="fecha_fin"
-    )
-
-if st.button("📥 Descargar y graficar", type="primary"):
-    # Leer directamente del estado
-    fecha_ini = st.session_state.fecha_ini
-    fecha_fin = st.session_state.fecha_fin
-    vars_seleccionadas = st.session_state.variables  # <--- aquí está
-
-    datasets = {"Precipitación": "s54a-sgyg", "Temperatura": "sbwg-7ju4"}
-    datos = {}
-    with st.spinner("Descargando datos..."):
-        for var in vars_seleccionadas:
-            df = descargar_datos_ideam(codigo, datasets[var])
-            # ... resto del código
+    codigo = opciones[seleccion]
+    nombre = seleccion.split(" (")[0]
+    st.session_state.codigo_seleccionado = codigo
+    st.session_state.nombre_seleccionado = nombre
     
-    # Rango de fechas
+    # Variables (con key, pero solo una vez)
+    variables = st.multiselect(
+        "Variables a descargar",
+        options=["Precipitación", "Temperatura"],
+        default=st.session_state.variables,
+        key="var_select"
+    )
+    st.session_state.variables = variables  # Guardamos la selección actual
+    
+    # Fechas (sin key, usamos variables locales)
     col1, col2 = st.columns(2)
     with col1:
-        st.date_input(
+        fecha_ini = st.date_input(
             "Fecha inicial",
-            value=st.session_state.fecha_ini,
+            value=datetime(1970, 1, 1),
             min_value=datetime(1950, 1, 1),
-            max_value=datetime.now(),
-            key="fecha_ini"
+            max_value=datetime.now()
         )
     with col2:
-        st.date_input(
+        fecha_fin = st.date_input(
             "Fecha final",
-            value=st.session_state.fecha_fin,
+            value=datetime.now(),
             min_value=datetime(1950, 1, 1),
-            max_value=datetime.now(),
-            key="fecha_fin"
+            max_value=datetime.now()
         )
     
     if st.button("📥 Descargar y graficar", type="primary"):
-        fecha_ini = st.session_state.fecha_ini
-        fecha_fin = st.session_state.fecha_fin
-        variables = st.session_state.variables
+        # Usamos las variables locales (fecha_ini, fecha_fin) y session_state.variables
+        vars_seleccionadas = st.session_state.variables
         datasets = {"Precipitación": "s54a-sgyg", "Temperatura": "sbwg-7ju4"}
         datos = {}
         with st.spinner("Descargando datos..."):
-            for var in variables:
+            for var in vars_seleccionadas:
                 df = descargar_datos_ideam(codigo, datasets[var])
                 if df is not None:
                     df = df[(df['fecha'] >= pd.to_datetime(fecha_ini)) & (df['fecha'] <= pd.to_datetime(fecha_fin))]
@@ -262,17 +220,12 @@ if st.button("📥 Descargar y graficar", type="primary"):
                 st.download_button(
                     label=f"📄 Descargar {var} (CSV)",
                     data=csv,
-                    file_name=f"{st.session_state.nombre_seleccionado}_{var}_{st.session_state.fecha_ini.strftime('%Y%m%d')}_{st.session_state.fecha_fin.strftime('%Y%m%d')}.csv",
+                    file_name=f"{st.session_state.nombre_seleccionado}_{var}_{fecha_ini}_{fecha_fin}.csv",
                     mime='text/csv'
                 )
-
 else:
-    # Si no hay estaciones en el estado, mostrar mensaje de bienvenida
     st.info("🔍 Ingresa coordenadas y presiona 'Buscar estaciones'.")
     st.map(pd.DataFrame({'lat': [4.7110], 'lon': [-74.0721]}))
 
-# ===================================================================
-# PIE DE PÁGINA
-# ===================================================================
 st.markdown("---")
 st.caption("Datos: IDEAM a través de datos.gov.co | App con Streamlit")
