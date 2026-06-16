@@ -1,0 +1,8 @@
+streamlit
+pandas
+matplotlib
+requests
+colombia-hydrodata
+shapely
+folium
+streamlit-folium
