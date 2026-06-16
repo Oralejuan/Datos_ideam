@@ -241,7 +241,7 @@ else:
 
 st.markdown("---")
 st.caption("Datos: IDEAM a través de datos.gov.co | App con Streamlit")
-                )
+
 else:
     st.info("🔍 Ingresa coordenadas y presiona 'Buscar estaciones'.")
     st.map(pd.DataFrame({'lat': [4.7110], 'lon': [-74.0721]}))
