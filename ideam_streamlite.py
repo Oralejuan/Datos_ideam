@@ -126,26 +126,60 @@ if st.session_state.estaciones is not None:
         ).add_to(m)
     folium_static(m, width=700, height=400)
     
-    # Selección de estación
-    opciones = {f"{row['name']} ({row['id']})": row['id'] for _, row in estaciones.iterrows()}
-    seleccion = st.selectbox(
-        "Selecciona una estación",
-        list(opciones.keys()),
-        key="estacion_select"
+    # ... (código anterior)
+
+# Selección de estación
+opciones = {f"{row['name']} ({row['id']})": row['id'] for _, row in estaciones.iterrows()}
+seleccion = st.selectbox(
+    "Selecciona una estación",
+    list(opciones.keys()),
+    key="estacion_select"
+)
+codigo = opciones[seleccion]
+nombre = seleccion.split(" (")[0]
+st.session_state.codigo_seleccionado = codigo
+st.session_state.nombre_seleccionado = nombre
+
+# Variables (vinculadas a session_state)
+variables = st.multiselect(
+    "Variables a descargar",
+    options=["Precipitación", "Temperatura"],
+    default=st.session_state.get("variables", ["Precipitación"]),
+    key="variables"
+)
+# NO asignes st.session_state.variables = variables
+
+# Fechas
+col1, col2 = st.columns(2)
+with col1:
+    st.date_input(
+        "Fecha inicial",
+        value=st.session_state.get("fecha_ini", datetime(1970, 1, 1)),
+        min_value=datetime(1950, 1, 1),
+        max_value=datetime.now(),
+        key="fecha_ini"
     )
-    codigo = opciones[seleccion]
-    nombre = seleccion.split(" (")[0]
-    st.session_state.codigo_seleccionado = codigo
-    st.session_state.nombre_seleccionado = nombre
-    
-    # Variables
-    variables = st.multiselect(
-        "Variables a descargar",
-        options=["Precipitación", "Temperatura"],
-        default=st.session_state.variables,
-        key="variables"
+with col2:
+    st.date_input(
+        "Fecha final",
+        value=st.session_state.get("fecha_fin", datetime.now()),
+        min_value=datetime(1950, 1, 1),
+        max_value=datetime.now(),
+        key="fecha_fin"
     )
-    st.session_state.variables = variables
+
+if st.button("📥 Descargar y graficar", type="primary"):
+    # Leer directamente del estado
+    fecha_ini = st.session_state.fecha_ini
+    fecha_fin = st.session_state.fecha_fin
+    vars_seleccionadas = st.session_state.variables  # <--- aquí está
+
+    datasets = {"Precipitación": "s54a-sgyg", "Temperatura": "sbwg-7ju4"}
+    datos = {}
+    with st.spinner("Descargando datos..."):
+        for var in vars_seleccionadas:
+            df = descargar_datos_ideam(codigo, datasets[var])
+            # ... resto del código
     
     # Rango de fechas
     col1, col2 = st.columns(2)
