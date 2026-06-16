@@ -10,12 +10,29 @@ import folium
 from streamlit_folium import folium_static
 
 # ===================================================================
-# FUNCIONES AUXILIARES (con caché)
+# CONFIGURACIÓN DE PÁGINA Y ESTADO
 # ===================================================================
+st.set_page_config(page_title="Visor Climático IDEAM", page_icon="🌦️", layout="wide")
 
+# Inicializar session_state
+if 'estaciones' not in st.session_state:
+    st.session_state.estaciones = None
+if 'codigo_seleccionado' not in st.session_state:
+    st.session_state.codigo_seleccionado = None
+if 'nombre_seleccionado' not in st.session_state:
+    st.session_state.nombre_seleccionado = None
+if 'datos_descargados' not in st.session_state:
+    st.session_state.datos_descargados = {}
+if 'fecha_ini' not in st.session_state:
+    st.session_state.fecha_ini = datetime(1970, 1, 1)
+if 'fecha_fin' not in st.session_state:
+    st.session_state.fecha_fin = datetime.now()
+
+# ===================================================================
+# FUNCIONES AUXILIARES
+# ===================================================================
 @st.cache_data(ttl=3600)
 def get_stations_nearby(lat, lon, n=5):
-    """Obtiene las n estaciones más cercanas."""
     cliente = Client()
     catalogo = cliente.catalog
     mi_ubicacion = Point(lon, lat)
@@ -25,7 +42,6 @@ def get_stations_nearby(lat, lon, n=5):
 
 @st.cache_data(ttl=600)
 def descargar_datos_ideam(codigo, dataset_id):
-    """Descarga datos diarios desde datos.gov.co."""
     base_url = f"https://www.datos.gov.co/resource/{dataset_id}.csv"
     params = {"codigoestacion": codigo, "$limit": 100000}
     try:
@@ -35,23 +51,18 @@ def descargar_datos_ideam(codigo, dataset_id):
         df = pd.read_csv(StringIO(response.text))
         if df.empty:
             return None
-        
-        # Estandarización de columnas
         if 'fechaobservacion' in df.columns:
             df['fecha'] = pd.to_datetime(df['fechaobservacion'])
         elif 'fecha' in df.columns:
             df['fecha'] = pd.to_datetime(df['fecha'])
         else:
             return None
-        
         if 'valorobservado' in df.columns:
             df.rename(columns={'valorobservado': 'valor'}, inplace=True)
         df['valor'] = pd.to_numeric(df['valor'], errors='coerce')
         df = df.dropna(subset=['valor', 'fecha'])
         if df.empty:
             return None
-        
-        # Agrupar por día
         df['fecha_dia'] = df['fecha'].dt.date
         df_diario = df.groupby('fecha_dia')['valor'].mean().reset_index()
         df_diario['fecha'] = pd.to_datetime(df_diario['fecha_dia'])
@@ -60,32 +71,13 @@ def descargar_datos_ideam(codigo, dataset_id):
         return None
 
 # ===================================================================
-# CONFIGURACIÓN DE LA PÁGINA
+# TÍTULO
 # ===================================================================
-st.set_page_config(page_title="Visor Climático IDEAM", page_icon="🌦️", layout="wide")
 st.title("🌦️ Visor de Datos Climáticos - IDEAM")
 st.markdown("Explora datos históricos de **precipitación y temperatura** de estaciones IDEAM en Colombia.")
 
-# Inicializar session_state si no existe
-if "estaciones" not in st.session_state:
-    st.session_state.estaciones = None
-if "seleccion" not in st.session_state:
-    st.session_state.seleccion = None
-if "codigo" not in st.session_state:
-    st.session_state.codigo = None
-if "nombre" not in st.session_state:
-    st.session_state.nombre = None
-if "datos" not in st.session_state:
-    st.session_state.datos = None
-if "variables" not in st.session_state:
-    st.session_state.variables = None
-if "fecha_ini" not in st.session_state:
-    st.session_state.fecha_ini = datetime(1970, 1, 1)
-if "fecha_fin" not in st.session_state:
-    st.session_state.fecha_fin = datetime.now()
-
 # ===================================================================
-# SIDEBAR: BÚSQUEDA DE ESTACIONES
+# SIDEBAR
 # ===================================================================
 with st.sidebar:
     st.header("📍 Ubicación")
@@ -95,7 +87,7 @@ with st.sidebar:
     buscar = st.button("🔍 Buscar estaciones", type="primary")
 
 # ===================================================================
-# LÓGICA DE BÚSQUEDA (se ejecuta solo cuando se presiona el botón)
+# CUERPO PRINCIPAL
 # ===================================================================
 if buscar:
     with st.spinner("Conectando al IDEAM..."):
@@ -103,29 +95,15 @@ if buscar:
             estaciones = get_stations_nearby(lat, lon, n_estaciones)
             if estaciones.empty:
                 st.error("No se encontraron estaciones cercanas.")
-                st.session_state.estaciones = None
                 st.stop()
-            # Guardar en session_state
             st.session_state.estaciones = estaciones
-            # Seleccionar la primera automáticamente
-            primera = estaciones.iloc[0]
-            st.session_state.seleccion = f"{primera['name']} ({primera['id']})"
-            st.session_state.codigo = primera['id']
-            st.session_state.nombre = primera['name']
-            # Limpiar datos anteriores
-            st.session_state.datos = None
         except Exception as e:
             st.error(f"Error: {e}")
-            st.session_state.estaciones = None
             st.stop()
 
-# ===================================================================
-# CUERPO PRINCIPAL: Mostrar si hay estaciones en session_state
-# ===================================================================
+# Mostrar estaciones si existen en el estado
 if st.session_state.estaciones is not None:
     estaciones = st.session_state.estaciones
-    
-    # Mostrar tabla
     st.subheader("📌 Estaciones más cercanas")
     st.dataframe(
         estaciones[['name', 'id', 'department', 'municipality']].rename(
@@ -146,82 +124,59 @@ if st.session_state.estaciones is not None:
         ).add_to(m)
     folium_static(m, width=700, height=400)
     
-    # Selección de estación (con un key que actualiza session_state)
+    # Selección de estación
     opciones = {f"{row['name']} ({row['id']})": row['id'] for _, row in estaciones.iterrows()}
-    nueva_seleccion = st.selectbox(
+    seleccion = st.selectbox(
         "Selecciona una estación",
         list(opciones.keys()),
-        index=list(opciones.keys()).index(st.session_state.seleccion) if st.session_state.seleccion in opciones else 0,
-        key="select_estacion"
+        key="estacion_select"
     )
-    # Si cambió la selección, actualizar session_state y limpiar datos
-    if nueva_seleccion != st.session_state.seleccion:
-        st.session_state.seleccion = nueva_seleccion
-        st.session_state.codigo = opciones[nueva_seleccion]
-        st.session_state.nombre = nueva_seleccion.split(" (")[0]
-        st.session_state.datos = None  # Limpiar datos al cambiar de estación
+    codigo = opciones[seleccion]
+    nombre = seleccion.split(" (")[0]
+    st.session_state.codigo_seleccionado = codigo
+    st.session_state.nombre_seleccionado = nombre
     
-    # Variables (multiselect)
+    # Variables
     variables = st.multiselect(
         "Variables a descargar",
         options=["Precipitación", "Temperatura"],
-        default=["Precipitación"] if st.session_state.variables is None else st.session_state.variables,
-        key="select_variables"
+        default=["Precipitación"],
+        key="vars_select"
     )
-    st.session_state.variables = variables  # Guardar estado
     
     # Rango de fechas
     col1, col2 = st.columns(2)
     with col1:
-        fecha_ini = st.date_input(
-            "Fecha inicial",
-            st.session_state.fecha_ini,
-            min_value=datetime(1950, 1, 1),
-            max_value=datetime.now(),
-            key="fecha_ini_input"
-        )
+        fecha_ini = st.date_input("Fecha inicial", datetime(1970, 1, 1), min_value=datetime(1950, 1, 1), max_value=datetime.now(), key="fecha_ini")
     with col2:
-        fecha_fin = st.date_input(
-            "Fecha final",
-            st.session_state.fecha_fin,
-            min_value=datetime(1950, 1, 1),
-            max_value=datetime.now(),
-            key="fecha_fin_input"
-        )
+        fecha_fin = st.date_input("Fecha final", datetime.now(), min_value=datetime(1950, 1, 1), max_value=datetime.now(), key="fecha_fin")
     st.session_state.fecha_ini = fecha_ini
     st.session_state.fecha_fin = fecha_fin
     
-    # Botón para descargar/graficar
     if st.button("📥 Descargar y graficar", type="primary"):
         datasets = {"Precipitación": "s54a-sgyg", "Temperatura": "sbwg-7ju4"}
         datos = {}
-        
         with st.spinner("Descargando datos..."):
             for var in variables:
-                df = descargar_datos_ideam(st.session_state.codigo, datasets[var])
+                df = descargar_datos_ideam(codigo, datasets[var])
                 if df is not None:
-                    df = df[(df['fecha'] >= pd.to_datetime(fecha_ini)) & 
-                            (df['fecha'] <= pd.to_datetime(fecha_fin))]
+                    df = df[(df['fecha'] >= pd.to_datetime(fecha_ini)) & (df['fecha'] <= pd.to_datetime(fecha_fin))]
                     if not df.empty:
                         datos[var] = df
                     else:
                         st.warning(f"No hay datos de {var} en el rango seleccionado.")
                 else:
                     st.warning(f"No se pudieron obtener datos de {var}.")
-        
         if datos:
-            st.session_state.datos = datos
+            st.session_state.datos_descargados = datos
         else:
             st.error("No se descargaron datos.")
-            st.session_state.datos = None
+            st.session_state.datos_descargados = {}
     
-    # ===================================================================
-    # MOSTRAR DATOS SI EXISTEN EN SESSION_STATE
-    # ===================================================================
-    if st.session_state.datos is not None:
-        datos = st.session_state.datos
-        st.subheader(f"📈 Datos de {st.session_state.nombre}")
-        
+    # Mostrar datos descargados si existen
+    if st.session_state.datos_descargados:
+        datos = st.session_state.datos_descargados
+        st.subheader(f"📈 Datos de {st.session_state.nombre_seleccionado}")
         tabs = st.tabs(list(datos.keys()))
         for idx, (var, df) in enumerate(datos.items()):
             with tabs[idx]:
@@ -232,7 +187,6 @@ if st.session_state.estaciones is not None:
                 col4.metric("Días", len(df))
                 
                 if var == "Precipitación":
-                    # Días secos consecutivos
                     df['seco'] = df['valor'] < 1
                     racha_max = 0
                     racha_act = 0
@@ -248,7 +202,7 @@ if st.session_state.estaciones is not None:
                 fig, ax = plt.subplots(figsize=(12, 5))
                 color = 'blue' if var == "Precipitación" else 'red'
                 ax.plot(df['fecha'], df['valor'], color=color, linewidth=1)
-                ax.set_title(f"{var} - {st.session_state.nombre}")
+                ax.set_title(f"{var} - {st.session_state.nombre_seleccionado}")
                 ax.set_xlabel("Fecha")
                 ax.set_ylabel("mm" if var == "Precipitación" else "°C")
                 ax.grid(True, linestyle='--', alpha=0.6)
@@ -258,7 +212,7 @@ if st.session_state.estaciones is not None:
                 st.download_button(
                     label=f"📄 Descargar {var} (CSV)",
                     data=csv,
-                    file_name=f"{st.session_state.nombre}_{var}_{fecha_ini}_{fecha_fin}.csv",
+                    file_name=f"{st.session_state.nombre_seleccionado}_{var}_{fecha_ini}_{fecha_fin}.csv",
                     mime='text/csv'
                 )
 else:
@@ -267,11 +221,3 @@ else:
 
 st.markdown("---")
 st.caption("Datos: IDEAM a través de datos.gov.co | App con Streamlit")
-    # Mostrar mapa de Colombia con ubicación por defecto
-    st.map(pd.DataFrame({'lat': [4.7110], 'lon': [-74.0721]}))
-
-# ===================================================================
-# PIE DE PÁGINA
-# ===================================================================
-st.markdown("---")
-st.caption("Datos proporcionados por el IDEAM a través de datos.gov.co. Aplicación creada con Streamlit.")
